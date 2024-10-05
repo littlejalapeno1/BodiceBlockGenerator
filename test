@@ -3,3 +3,814 @@ git add .
 git commit -m "Initial commit"
 git remote add origin https://github.com/your-username/bodice-block-generator.git
 git push -u origin main
+'use client'
+
+import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Slider } from "@/components/ui/slider"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertCircle, Download } from "lucide-react"
+import { jsPDF } from 'jspdf'
+
+interface Measurements {
+  backLength: number;
+  bustCircumference: number;
+  waistCircumference: number;
+  frontNeckWidth: number;
+  neckDepth: number;
+  frontCrossShoulderLength: number;
+  shoulderWidth: number;
+  armholeDepth: number;
+  hspToArmpit: number;
+  frontCrossShoulderArmhole: number;
+  hspToApex: number;
+  apexToApex: number;
+  waistDartWidth: number;
+  frontHspToWaist: number;
+  napeToWaist: number;
+  backCrossShoulderLength: number;
+  backCrossShoulderArmholeLength: number;
+}
+
+const initialMeasurements: Measurements = {
+  backLength: 41.5,
+  bustCircumference: 81,
+  waistCircumference: 69,
+  frontNeckWidth: 17,
+  neckDepth: 9,
+  frontCrossShoulderLength: 36,
+  shoulderWidth: 10,
+  armholeDepth: 25,
+  hspToArmpit: 15,
+  frontCrossShoulderArmhole: 32,
+  hspToApex: 27,
+  apexToApex: 18,
+  waistDartWidth: 3,
+  frontHspToWaist: 40.5,
+  napeToWaist: 39,
+  backCrossShoulderLength: 35,
+  backCrossShoulderArmholeLength: 30,
+}
+
+const calculateBustDartWidth = (bustCircumference: number, waistCircumference: number): number => {
+  const difference = bustCircumference - waistCircumference;
+  if (difference <= 13) return 1.5;
+  if (difference >= 25) return 7;
+  return 1.5 + ((difference - 13) / 12) * 5.5;
+};
+
+const calculateWaistDartWidth = (bustCircumference: number, waistCircumference: number): number => {
+  const difference = bustCircumference - waistCircumference;
+  return Math.max(2, Math.min(5, difference / 4));
+};
+
+const drawHeart = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y + size / 4);
+  ctx.quadraticCurveTo(x, y, x + size / 4, y);
+  ctx.quadraticCurveTo(x + size / 2, y, x + size / 2, y + size / 4);
+  ctx.quadraticCurveTo(x + size / 2, y, x + size * 3/4, y);
+  ctx.quadraticCurveTo(x + size, y, x + size, y + size / 4);
+  ctx.quadraticCurveTo(x + size, y + size / 2, x + size / 2, y + size * 3/4);
+  ctx.quadraticCurveTo(x, y + size / 2, x, y + size / 4);
+  ctx.fillStyle = 'rgba(255, 192, 203, 0.5)';
+  ctx.fill();
+  ctx.restore();
+};
+
+export default function BodiceBlockGenerator() {
+  const [measurements, setMeasurements] = useState<Measurements>(initialMeasurements)
+  const [scale, setScale] = useState(10)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  const updateMeasurement = (key: keyof Measurements, value: number) => {
+    setMeasurements(prev => {
+      const updatedMeasurements = { ...prev, [key]: value };
+      if (key === 'backLength') {
+        updatedMeasurements.napeToWaist = value - 2.5;
+      }
+      if (key === 'bustCircumference' || key === 'waistCircumference') {
+        updatedMeasurements.waistDartWidth = calculateWaistDartWidth(
+          key === 'bustCircumference' ? value : prev.bustCircumference,
+          key === 'waistCircumference' ? value : prev.waistCircumference
+        );
+      }
+      return updatedMeasurements;
+    });
+  }
+
+  const drawBodiceBlock = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      setError('Canvas element not found')
+      return
+    }
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      setError('Unable to get 2D context')
+      return
+    }
+
+    setError(null)
+
+    try {
+      ctx.fillStyle = 'white'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      const margin = 50
+      const canvasHeight = canvas.height
+      const height = measurements.backLength * scale
+      const width = (measurements.bustCircumference / 2) * scale
+      const waistWidth = (measurements.waistCircumference / 2) * scale
+      const halfWidth = width / 2
+      const rightShift = 10 * scale
+
+      const topMargin = canvasHeight - height - margin
+
+      const bustDartWidth = calculateBustDartWidth(measurements.bustCircumference, measurements.waistCircumference) * scale
+      const reducedWaistDartWidth = measurements.waistDartWidth * 0.67
+      const waistDartReduction = measurements.waistDartWidth * 0.33
+
+      ctx.beginPath()
+      ctx.rect(margin, topMargin, width + rightShift, height)
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.moveTo(margin, topMargin)
+      ctx.lineTo(margin, topMargin + height)
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.moveTo(margin + halfWidth, topMargin)
+      ctx.lineTo(margin + halfWidth, topMargin + height)
+      ctx.stroke()
+
+      const cbnpY = topMargin + height - (measurements.napeToWaist * scale)
+      ctx.beginPath()
+      ctx.arc(margin, cbnpY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'red'
+      ctx.fill()
+
+      const cbnp90X = margin + (0.5 * scale)
+      ctx.beginPath()
+      ctx.moveTo(margin, cbnpY)
+      ctx.lineTo(cbnp90X, cbnpY)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(cbnp90X, cbnpY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'orange'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.arc(margin, topMargin, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'blue'
+      ctx.fill()
+
+      const armholeDepthY = topMargin + (measurements.armholeDepth * scale)
+
+      const mpX = margin + halfWidth
+      const mpY = armholeDepthY
+      ctx.beginPath()
+      ctx.arc(mpX, mpY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'purple'
+      ctx.fill()
+
+      const batX = margin + (measurements.backCrossShoulderLength / 2) * scale + (1.2 * scale)
+      const batY = topMargin + (3.5 * scale)
+      ctx.beginPath()
+      ctx.arc(batX, batY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'blue'
+      ctx.fill()
+
+      const bhspX = margin + ((measurements.frontNeckWidth / 2 + 0.2) * scale)
+      ctx.beginPath()
+      ctx.arc(bhspX, topMargin, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'green'
+      ctx.fill()
+
+      const bhsp90Y = topMargin + (0.5 * scale)
+      ctx.beginPath()
+      ctx.moveTo(bhspX, topMargin)
+      ctx.lineTo(bhspX, bhsp90Y)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(bhspX, bhsp90Y, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'purple'
+      ctx.fill()
+
+      const backBodiceHeight = cbnpY - topMargin
+      const bnmpY = topMargin + (backBodiceHeight * 5 / 6)
+      const cbToBhspDistance = bhspX - margin
+      const bnmpX = margin + (cbToBhspDistance * 0.7)
+
+      ctx.beginPath()
+      ctx.arc(bnmpX, bnmpY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'red'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(cbnp90X, cbnpY)
+      ctx.quadraticCurveTo(bnmpX, bnmpY, bhspX, bhsp90Y)
+      ctx.strokeStyle = 'rgba(0, 128, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const hspToArmpitY = topMargin + (measurements.hspToArmpit * scale)
+      const crossArmholeLineY = hspToArmpitY
+
+      ctx.beginPath()
+      ctx.arc(margin, crossArmholeLineY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'blue'
+      ctx.fill()
+
+      const backCrossShoulderArmholeX = margin + ((measurements.backCrossShoulderArmholeLength / 2) * scale)
+
+      ctx.beginPath()
+      ctx.arc(backCrossShoulderArmholeX, crossArmholeLineY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'magenta'
+      ctx.fill()
+
+      const halfNeckWidth = (measurements.frontNeckWidth / 2) * scale
+      const neckDepth = measurements.neckDepth * scale
+      const hspX = margin + width + rightShift - halfNeckWidth
+      const hspY = topMargin
+      const ndpX = margin + width + rightShift
+      const ndpY = topMargin + neckDepth
+
+      ctx.beginPath()
+      ctx.arc(hspX, hspY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'black'
+      ctx.fill()
+      ctx.beginPath()
+      ctx.arc(ndpX, ndpY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'black'
+      ctx.fill()
+
+      const perpendicularLength = 0.5 * scale
+      const hsp90X = hspX
+      const hsp90Y = hspY + perpendicularLength
+      const nd90X = ndpX - perpendicularLength
+      const nd90Y = ndpY
+      const nlmpX = hspX + 2.5 * scale
+      const nlmpY = ndpY - 2.5 * scale
+
+      ctx.beginPath()
+      ctx.moveTo(hspX, hspY)
+      ctx.lineTo(hsp90X, hsp90Y)
+      ctx.quadraticCurveTo(nlmpX, nlmpY, nd90X, nd90Y)
+      ctx.lineTo(ndpX, ndpY)
+      ctx.strokeStyle = 'blue'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const shoulderLength = measurements.shoulderWidth * scale
+      const shoulderAngle = Math.atan2(3.5, measurements.frontCrossShoulderLength / 2)
+      const shoulderEndX = hspX - shoulderLength * Math.cos(shoulderAngle)
+      const shoulderEndY = hspY + shoulderLength * Math.sin(shoulderAngle)
+
+      ctx.beginPath()
+      ctx.moveTo(hspX, hspY)
+      ctx.lineTo(shoulderEndX, shoulderEndY)
+      ctx.strokeStyle = 'green'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const sdl1Ratio = 0.5
+      const sdl1X = bhspX + (batX - bhspX) * sdl1Ratio
+      const sdl1Y = topMargin + (batY - topMargin) * sdl1Ratio
+
+      const dirX = batX - bhspX
+      const dirY = batY - topMargin
+
+      const length = Math.sqrt(dirX * dirX + dirY * dirY)
+      const normalizedDirX = dirX / length
+      const normalizedDirY = dirY / length
+
+      const extendedSdl1X = sdl1X + normalizedDirX * 1.2 * scale
+      const extendedSdl1Y = sdl1Y + normalizedDirY * 1.2 * scale
+
+      ctx.beginPath()
+      ctx.moveTo(bhspX, topMargin)
+      ctx.lineTo(extendedSdl1X, extendedSdl1Y)
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.arc(extendedSdl1X, extendedSdl1Y, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'red'
+      ctx.fill()
+
+      const sdl2Distance = (measurements.shoulderWidth / 2) * scale
+      const sdl2X = bhspX + (sdl2Distance * normalizedDirX)
+      const sdl2Y = topMargin + (sdl2Distance * normalizedDirY)
+
+      ctx.beginPath()
+      ctx.moveTo(bhspX, topMargin)
+      ctx.lineTo(sdl2X, sdl2Y)
+      ctx.strokeStyle = 'rgba(173, 216, 230, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.arc(sdl2X, sdl2Y, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'blue'
+      ctx.fill()
+
+      const sdl2pLength = 9 * scale
+      const sdl2pAngle = Math.atan2(sdl2Y - topMargin, sdl2X - bhspX) + Math.PI / 2
+      const sdl2pEndX = sdl2X + sdl2pLength * Math.cos(sdl2pAngle)
+      const sdl2pEndY = sdl2Y + sdl2pLength * Math.sin(sdl2pAngle)
+
+      ctx.beginPath()
+      ctx.moveTo(sdl2X, sdl2Y)
+      ctx.lineTo(sdl2pEndX, sdl2pEndY)
+      ctx.strokeStyle = 'rgba(255, 165, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.arc(sdl2pEndX, sdl2pEndY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'purple'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(sdl2pEndX, sdl2pEndY)
+      ctx.lineTo(extendedSdl1X, extendedSdl1Y)
+      ctx.strokeStyle = 'rgba(255, 0, 255, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const pslDirX = extendedSdl1X - sdl2pEndX
+      const pslDirY = extendedSdl1Y - sdl2pEndY
+      const pslLength = Math.sqrt(pslDirX * pslDirX + pslDirY * pslDirY)
+      const pslNormalizedDirX = pslDirX / pslLength
+      const pslNormalizedDirY = pslDirY / pslLength
+
+      const shoulderDartWidth = 1.2 * scale
+      const perpLineDirX = -pslNormalizedDirY
+      const perpLineDirY = pslNormalizedDirX
+
+      const perpLineEndX = extendedSdl1X + perpLineDirX * shoulderDartWidth
+      const perpLineEndY = extendedSdl1Y + perpLineDirY * shoulderDartWidth
+
+      const atbDistance = (measurements.shoulderWidth / 2) * scale
+      const atbX = extendedSdl1X + (perpLineEndX - extendedSdl1X) / shoulderDartWidth * atbDistance
+      const atbY = extendedSdl1Y + (perpLineEndY - extendedSdl1Y) / shoulderDartWidth * atbDistance
+
+      ctx.beginPath()
+      ctx.moveTo(extendedSdl1X, extendedSdl1Y)
+      ctx.lineTo(atbX, atbY)
+      ctx.strokeStyle = 'rgba(0, 255, 255, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.arc(atbX, atbY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'red'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(mpX, mpY)
+      ctx.quadraticCurveTo(
+        backCrossShoulderArmholeX,
+        crossArmholeLineY - (crossArmholeLineY - mpY) / 2,
+        backCrossShoulderArmholeX,
+        crossArmholeLineY
+      )
+      const controlPointX = backCrossShoulderArmholeX + (atbX - backCrossShoulderArmholeX) * 0.5
+      const controlPointY = crossArmholeLineY - (crossArmholeLineY - atbY) * 0.7
+      ctx.quadraticCurveTo(
+        controlPointX,
+        controlPointY,
+        atbX,
+        atbY
+      )
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const armholeBottomY = topMargin + measurements.armholeDepth * scale
+      const middleArmholeY = topMargin + measurements.hspToArmpit * scale
+      const centerPointX = margin + halfWidth + rightShift
+      const centerPointY = armholeBottomY
+      const amDistance = (measurements.frontCrossShoulderArmhole / 2) * scale
+      const amX = margin + width + rightShift - amDistance
+      const amY = middleArmholeY
+
+      ctx.beginPath()
+      ctx.moveTo(shoulderEndX, shoulderEndY)
+      ctx.quadraticCurveTo(
+        amX,
+        amY - (amY - shoulderEndY) / 2,
+        amX,
+        amY
+      )
+      ctx.quadraticCurveTo(
+        amX,
+        amY + (centerPointY - amY) / 2,
+        centerPointX,
+        centerPointY
+      )
+      ctx.stroke()
+
+      const halfApexToApex = measurements.apexToApex / 2 * scale
+      const apexLineX = margin + width + rightShift - halfApexToApex
+      const hspToApexLength = measurements.hspToApex * scale
+      const bpX = apexLineX
+      const bpY = hspY + hspToApexLength
+
+      drawHeart(ctx, bpX - 5, bpY - 5, 10)
+
+      const frontWaistY = topMargin + measurements.frontHspToWaist * scale
+      const quarterWaist = measurements.waistCircumference / 4
+      const wepDistance = (quarterWaist + reducedWaistDartWidth) * scale
+      const wepX = margin + width + rightShift - wepDistance + (waistDartReduction * scale)
+      const wepY = frontWaistY + bustDartWidth
+
+      ctx.beginPath()
+      ctx.arc(wepX, wepY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'purple'
+      ctx.fill()
+
+      const dartWidth = reducedWaistDartWidth * scale
+      const dartCenterX = bpX
+      const dartTopY = bpY
+      const dartBottomY = frontWaistY
+
+      ctx.beginPath()
+      ctx.moveTo(dartCenterX - dartWidth / 2, dartBottomY)
+      ctx.lineTo(dartCenterX, dartTopY)
+      ctx.moveTo(dartCenterX + dartWidth / 2, dartBottomY)
+      ctx.lineTo(dartCenterX, dartTopY)
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const wepCenterSlope = (centerPointY - wepY) / (centerPointX - wepX)
+      const wepCenterIntercept = wepY - wepCenterSlope * wepX
+      const nbdl1Y = armholeBottomY + 2.54 * scale
+      const nbdl2Y = nbdl1Y + bustDartWidth
+      const nbdl1X = (nbdl1Y - wepCenterIntercept) / wepCenterSlope
+      const nbdl2X = (nbdl2Y - wepCenterIntercept) / wepCenterSlope
+
+      ctx.beginPath()
+      ctx.moveTo(nbdl1X, nbdl1Y)
+      ctx.lineTo(bpX, bpY)
+      ctx.lineTo(nbdl2X, nbdl2Y)
+      ctx.strokeStyle = 'rgba(255, 165, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const cfWaistX = margin + width + rightShift
+      const cfWaistY = frontWaistY
+      const cp1x = wepX + (dartCenterX - dartWidth / 2 - wepX) * 0.7
+      const cp1y = dartBottomY
+      const cp2x = (dartCenterX + dartWidth / 2 + cfWaistX) / 2
+      const cp2y = (dartBottomY + cfWaistY) / 2
+
+      ctx.beginPath()
+      ctx.moveTo(wepX, wepY)
+      ctx.quadraticCurveTo(cp1x, cp1y, dartCenterX - dartWidth / 2, dartBottomY)
+      ctx.lineTo(dartCenterX + dartWidth / 2, dartBottomY)
+      ctx.bezierCurveTo(cp2x, cp2y, cfWaistX, dartBottomY, cfWaistX, cfWaistY)
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const wdpX = sdl2pEndX
+      const wdpY = sdl2pEndY + 10 * scale
+      ctx.beginPath()
+      ctx.arc(wdpX, wdpY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = 'orange'
+      ctx.fill()
+
+      const blcpX = margin
+      const blcpY = topMargin + height
+      ctx.beginPath()
+      ctx.arc(blcpX, blcpY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'red'
+      ctx.fill()
+
+      const quarterWaistPlusDart = (measurements.waistCircumference / 4) + (measurements.waistDartWidth * 0.66)
+      const newMeasurementEndX = blcpX + (quarterWaistPlusDart * scale)
+      const newMeasurementY = blcpY
+
+      ctx.beginPath()
+      ctx.moveTo(blcpX, newMeasurementY)
+      ctx.lineTo(newMeasurementEndX, newMeasurementY)
+      ctx.strokeStyle = 'rgba(255, 0, 255, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.moveTo(newMeasurementEndX, newMeasurementY - 5)
+      ctx.lineTo(newMeasurementEndX, newMeasurementY + 5)
+      ctx.lineTo(newMeasurementEndX + 5, newMeasurementY)
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(255, 0, 255, 0.7)'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.arc(newMeasurementEndX, newMeasurementY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'blue'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(mpX, mpY)
+      ctx.lineTo(newMeasurementEndX, newMeasurementY)
+      ctx.strokeStyle = 'rgba(255, 165, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.moveTo(wdpX, wdpY)
+      ctx.lineTo(wdpX, newMeasurementY)
+      ctx.strokeStyle = 'rgba(0, 128, 255, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.arc(wdpX, newMeasurementY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'green'
+      ctx.fill()
+
+      const newPointDistance = measurements.waistDartWidth * 0.335 * scale
+      const newPointX = wdpX - newPointDistance
+      const newPointY = newMeasurementY
+
+      ctx.beginPath()
+      ctx.arc(newPointX, newPointY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'purple'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(wdpX, newMeasurementY)
+      ctx.lineTo(newPointX, newPointY)
+      ctx.strokeStyle = 'rgba(128, 0, 128, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const newRightPointX = wdpX + newPointDistance
+      const newRightPointY = newMeasurementY
+
+      ctx.beginPath()
+      ctx.arc(newRightPointX, newRightPointY, 4, 0, 2 * Math.PI)
+      ctx.fillStyle = 'orange'
+      ctx.fill()
+
+      ctx.beginPath()
+      ctx.moveTo(wdpX, newMeasurementY)
+      ctx.lineTo(newRightPointX, newRightPointY)
+      ctx.strokeStyle = 'rgba(255, 140, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.moveTo(newPointX, newPointY)
+      ctx.lineTo(wdpX, wdpY)
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      ctx.beginPath()
+      ctx.moveTo(newRightPointX, newRightPointY)
+      ctx.lineTo(wdpX, wdpY)
+      ctx.strokeStyle = 'rgba(255, 0, 255, 0.7)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.strokeStyle = 'black'
+      ctx.lineWidth = 1
+
+      const centerToWepLength = Math.sqrt(
+        Math.pow(centerPointX - wepX, 2) + Math.pow(centerPointY - wepY, 2)
+      ) / scale
+      const result = centerToWepLength - bustDartWidth / scale
+
+      ctx.beginPath()
+      ctx.moveTo(centerPointX, centerPointY)
+      ctx.lineTo(wepX, wepY)
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+
+      const bustDartMidX = (nbdl1X + nbdl2X) / 2
+      const bustDartMidY = (nbdl1Y + nbdl2Y) / 2
+      ctx.beginPath()
+      ctx.moveTo(bustDartMidX - bustDartWidth / 2, bustDartMidY)
+      ctx.lineTo(bustDartMidX + bustDartWidth / 2, bustDartMidY)
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)'
+      ctx.lineWidth = 4
+      ctx.stroke()
+
+      setIsLoading(false)
+    } catch (err) {
+      console.error('Error drawing bodice block:', err)
+      setError(`Error drawing bodice block: ${err.message}`)
+    }
+  }, [measurements, scale])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      drawBodiceBlock()
+    }, 100)
+
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [drawBodiceBlock])
+
+  const downloadPDF = useCallback(() => {
+    console.log('Starting PDF download process');
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      console.error('Canvas element not found');
+      setError('Canvas element not found');
+      return;
+    }
+
+    try {
+      console.log('Creating PDF');
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+
+      console.log('Getting canvas data URL');
+      const dataUrl = canvas.toDataURL('image/png');
+      console.log('Data URL length:', dataUrl.length);
+
+      console.log('Adding image to PDF');
+      pdf.addImage(dataUrl, 'PNG', 0, 0, canvas.width, canvas.height);
+      
+      console.log('Creating Blob');
+      const pdfBlob = pdf.output('blob');
+      
+      console.log('Creating download link');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(pdfBlob);
+      link.download = 'bodice-block.pdf';
+      
+      console.log('Appending link to body');
+      document.body.appendChild(link);
+      
+      console.log('Triggering download');
+      link.click();
+      
+      console.log('Cleaning up');
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+      
+      console.log('Download process completed');
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      setError(`Error generating PDF: ${err.message}`);
+    }
+  }, []);
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-center">Bodice Block Generator</h1>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Measurements (cm)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Object.entries(measurements).map(([key, value]) => (
+              <div key={key} className="space-y-2">
+                <Label htmlFor={key}>
+                  {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                </Label>
+                <Input
+                  id={key}
+                  type="number"
+                  value={value}
+                  onChange={(e) => updateMeasurement(key as keyof Measurements, parseFloat(e.target.value))}
+                  className="w-full"
+                  disabled={key === 'napeToWaist' || key === 'waistDartWidth'}
+                />
+                {key === 'napeToWaist' && (
+                  <p className="text-sm text-muted-foreground">Auto-calculated: Back Length - 2.5 cm</p>
+                )}
+                {key === 'waistDartWidth' && (
+                  <p className="text-sm text-muted-foreground">Auto-calculated based on bust and waist circumference</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Scale</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Slider
+              min={1}
+              max={20}
+              step={1}
+              value={[scale]}
+              onValueChange={(value) => setScale(value[0])}
+            />
+            <p className="text-center">1:{scale}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Button onClick={drawBodiceBlock} className="w-full">Generate Bodice Block</Button>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bodice Block Preview</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {error ? (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-10">
+                  <p>Loading...</p>
+                </div>
+              )}
+              <canvas 
+                ref={canvasRef} 
+                width={900}
+                height={600}
+                className="border border-gray-300 w-full bg-white"
+              />
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Button 
+        onClick={downloadPDF} 
+        className="w-full" 
+        disabled={isLoading || !!error}
+      >
+        <Download className="mr-2 h-4 w-4" />
+        Download as PDF
+      </Button>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+    </div>
+  )
+}
